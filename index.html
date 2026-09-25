@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stetho MD - Clinic Inventory & Dispensing System</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Bootstrap 5 CSS & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  
+  <!-- Core Branding & Custom Styles -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Firebase SDK v10 (Compat version for instant browser execution on GitHub Pages) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+</head>
+<body>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+  <!-- Printable Order Invoice Container (Hidden during normal viewing) -->
+  <div id="printable-order-container" class="print-only d-none"></div>
+
+  <div class="app-wrapper no-print">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="d-flex align-items-center justify-content-center bg-white rounded p-1" style="width: 38px; height: 38px;">
+          <i class="bi bi-hospital fs-4 text-primary"></i>
+        </div>
+        <div>
+          <h5 class="mb-0 text-white fw-bold">Stetho MD</h5>
+          <span class="small text-muted" style="font-size: 0.72rem;">Live Clinic System</span>
+        </div>
+      </div>
+
+      <ul class="sidebar-menu">
+        <li class="sidebar-menu-item active">
+          <a data-page="inventory">
+            <i class="bi bi-boxes"></i>
+            <span>In-Office Inventory</span>
+          </a>
+        </li>
+        <li class="sidebar-menu-item">
+          <a data-page="orders">
+            <i class="bi bi-truck"></i>
+            <span>Pharmacy Orders</span>
+          </a>
+        </li>
+        <li class="sidebar-menu-item">
+          <a data-page="cases">
+            <i class="bi bi-folder2-open"></i>
+            <span>Cases & Patients</span>
+          </a>
+        </li>
+        <li class="sidebar-menu-item">
+          <a data-page="reports">
+            <i class="bi bi-bar-chart-line"></i>
+            <span>Analytics Reports</span>
+          </a>
+        </li>
+        <li class="sidebar-menu-item">
+          <a data-page="settings">
+            <i class="bi bi-gear"></i>
+            <span>Staff & Settings</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="user-badge bg-dark rounded p-2 border border-secondary border-opacity-25">
+          <div class="user-avatar" id="sidebar-user-avatar">DR</div>
+          <div class="user-info">
+            <span class="name text-white" id="sidebar-user-name">Dr. Smith</span>
+            <span class="role text-info" id="sidebar-user-role">Administrator</span>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-danger w-100 mt-2" onclick="logoutUser()">
+          <i class="bi bi-box-arrow-right me-1"></i>Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Application View Area -->
+    <main class="main-content">
+      
+      <!-- Top Setup Wizard Alert Banner (Shown if Firebase credentials not entered yet) -->
+      <div id="firebase-setup-banner" class="alert alert-info border-info shadow-sm mb-4" style="display: none;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <h6 class="fw-bold mb-1"><i class="bi bi-cloud-arrow-up-fill me-2 text-primary"></i>Connect your Free Firebase Firestore Database</h6>
+            <p class="small mb-0 text-dark">To enable live sub-second sync on GitHub Pages, enter your Firebase credentials or seed demo data.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary fw-bold" onclick="openModal('firebaseConfigModal')">
+              <i class="bi bi-key-fill me-1"></i>Enter Firebase Config
+            </button>
+            <button class="btn btn-sm btn-outline-dark" onclick="triggerDatabaseSeed()">
+              <i class="bi bi-database-fill-gear me-1"></i>Seed Clinic Catalog
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- VIEW: IN-OFFICE INVENTORY                                     -->
+      <!-- ============================================================ -->
+      <section id="view-inventory" class="page-view">
+        <div class="page-title-section">
+          <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <h2>In-Office Inventory</h2>
+              <span class="realtime-indicator"><span class="realtime-dot"></span> Live Real-Time</span>
+            </div>
+            <p class="text-muted mb-0" id="inventory-current-location-badge">Tampa Clinic Inventory</p>
+          </div>
+          
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-primary" onclick="openModal('transferStockModal')">
+              <i class="bi bi-arrow-left-right me-1"></i>Transfer Stock
+            </button>
+            <button class="btn btn-outline-dark" onclick="triggerDatabaseSeed()">
+              <i class="bi bi-database-gear me-1"></i>Seed Catalog
+            </button>
+            <button class="btn btn-stetho-primary" onclick="openModal('editItemModal')">
+              <i class="bi bi-plus-circle me-1"></i>Add Product
+            </button>
+          </div>
+        </div>
+
+        <!-- Location Switcher Tabs (Tampa, Zephyrhills, Master Overview) -->
+        <div class="card glass-card p-3 mb-4">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div class="btn-group" role="group">
+              <button class="btn btn-loc-switcher btn-stetho-primary active px-4" data-location="Tampa" onclick="setInventoryLocation('Tampa')">
+                <i class="bi bi-geo-alt-fill me-1"></i>Tampa Clinic
+              </button>
+              <button class="btn btn-loc-switcher btn-outline-secondary px-4" data-location="Zephyrhills" onclick="setInventoryLocation('Zephyrhills')">
+                <i class="bi bi-geo-alt me-1"></i>Zephyrhills Clinic
+              </button>
+              <button class="btn btn-loc-switcher btn-outline-secondary px-4" data-location="MASTER" onclick="setInventoryLocation('MASTER')">
+                <i class="bi bi-layers-half me-1"></i>Master Overview (Combined)
+              </button>
+            </div>
+
+            <!-- Search & Barcode Quick Field -->
+            <div class="input-group" style="max-width: 320px;">
+              <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+              <input type="text" class="form-control" placeholder="Search item or scan barcode..." oninput="inventoryState.searchQuery = this.value; renderInventoryView();">
+            </div>
+          </div>
+
+          <!-- Product Category Filter Pills -->
+          <div class="d-flex gap-2 mt-3 flex-wrap">
+            <button class="btn btn-sm btn-cat-pill btn-dark active" data-category="ALL" onclick="setInventoryCategory('ALL')">All Products</button>
+            <button class="btn btn-sm btn-cat-pill btn-outline-secondary" data-category="Tirzepatide" onclick="setInventoryCategory('Tirzepatide')">Tirzepatide</button>
+            <button class="btn btn-sm btn-cat-pill btn-outline-secondary" data-category="Semaglutide" onclick="setInventoryCategory('Semaglutide')">Semaglutide</button>
+            <button class="btn btn-sm btn-cat-pill btn-outline-secondary" data-category="Vaccines" onclick="setInventoryCategory('Vaccines')">Vaccines</button>
+            <button class="btn btn-sm btn-cat-pill btn-outline-secondary" data-category="Supplies" onclick="setInventoryCategory('Supplies')">Clinic Supplies</button>
+          </div>
+        </div>
+
+        <!-- 1. Single Location Inventory View -->
+        <div id="location-inventory-view">
+          <div class="card glass-card">
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead>
+                  <tr>
+                    <th>Product & Specification</th>
+                    <th>Closed Stock (Sealed)</th>
+                    <th>Open Stock (Active Vials)</th>
+                    <th>Total Available Units</th>
+                    <th>Vendor / SKU</th>
+                    <th class="text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="inventory-table-body">
+                  <!-- Dynamically populated via inventory.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Master Inventory Overview (Tampa + Zephyrhills) with Hover Popovers -->
+        <div id="master-inventory-view" style="display: none;">
+          <div class="alert alert-info py-2 small mb-3">
+            <i class="bi bi-info-circle-fill me-1"></i> Hover over any product name to view the instant Tampa vs. Zephyrhills stock breakdown.
+          </div>
+          <div class="card glass-card">
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead>
+                  <tr>
+                    <th>Product Name (Hover for Details)</th>
+                    <th>Tampa Clinic</th>
+                    <th>Zephyrhills Clinic</th>
+                    <th>Combined Sealed / Open</th>
+                    <th>Grand Total Units</th>
+                    <th class="text-end">Cross-Clinic Transfer</th>
+                  </tr>
+                </thead>
+                <tbody id="master-inventory-table-body">
+                  <!-- Dynamically populated via inventory.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Cross-Clinic Transfers & Logs Collapsible -->
+        <div class="card glass-card mt-4">
+          <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Recent Stock Activity & Transfers</h6>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Transfer ID</th>
+                    <th>Date / Time</th>
+                    <th>Product</th>
+                    <th>Route</th>
+                    <th>Quantity</th>
+                    <th>Staff User</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="transfers-table-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- VIEW: PHARMACY ORDERS                                         -->
+      <!-- ============================================================ -->
+      <section id="view-orders" class="page-view" style="display: none;">
+        <div class="page-title-section">
+          <div>
+            <h2>Pharmacy Orders</h2>
+            <p class="text-muted mb-0">Track purchase orders, partial deliveries, and auto-credit sealed stock.</p>
+          </div>
+          <button class="btn btn-stetho-primary" onclick="openModal('newOrderModal')">
+            <i class="bi bi-plus-lg me-1"></i>New Pharmacy Order
+          </button>
+        </div>
+
+        <div class="card glass-card">
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <thead>
+                <tr>
+                  <th>Order #</th>
+                  <th>Received Date</th>
+                  <th>Vendor & Location</th>
+                  <th>Items Ordered</th>
+                  <th>Received By (Staff)</th>
+                  <th>Total Amount</th>
+                  <th>Status</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="orders-table-body">
+                <!-- Dynamically populated via orders.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- VIEW: CASES & PATIENTS                                        -->
+      <!-- ============================================================ -->
+      <section id="view-cases" class="page-view" style="display: none;">
+        <div class="page-title-section">
+          <div>
+            <h2>Clinical Cases & Dispensing</h2>
+            <p class="text-muted mb-0">Patient visits, weight loss protocols, and medication dispensing logs.</p>
+          </div>
+          <button class="btn btn-stetho-primary" onclick="openModal('newCaseModal')">
+            <i class="bi bi-person-plus me-1"></i>New Clinical Case
+          </button>
+        </div>
+
+        <div class="card glass-card">
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <thead>
+                <tr>
+                  <th>Case #</th>
+                  <th>Patient Name</th>
+                  <th>Protocol</th>
+                  <th>Clinic</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cases-table-body">
+                <!-- Dynamically populated via cases.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- VIEW: ANALYTICS & REPORTS                                     -->
+      <!-- ============================================================ -->
+      <section id="view-reports" class="page-view" style="display: none;">
+        <div class="page-title-section">
+          <div>
+            <h2>Analytics & Clinic Summary</h2>
+            <p class="text-muted mb-0">Stock levels, total clinic units, and inventory valuation.</p>
+          </div>
+        </div>
+        <div id="analytics-content">
+          <!-- Dynamically populated via reports.js -->
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- VIEW: STAFF & SETTINGS                                        -->
+      <!-- ============================================================ -->
+      <section id="view-settings" class="page-view" style="display: none;">
+        <div class="page-title-section">
+          <div>
+            <h2>Staff Roster & Clinic Settings</h2>
+            <p class="text-muted mb-0">Role-based access control and assigned clinic locations.</p>
+          </div>
+          <button class="btn btn-stetho-primary" onclick="openModal('createUserModal')">
+            <i class="bi bi-person-plus-fill me-1"></i>Add Staff Member
+          </button>
+        </div>
+
+        <div class="card glass-card">
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <thead>
+                <tr>
+                  <th>Full Name</th>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Assigned Location</th>
+                  <th>Status</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <!-- Dynamically populated via auth.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODALS                                                       -->
+  <!-- ============================================================ -->
+
+  <!-- 1. Use Units Modal (Micro-Unit Math: 200 - 35 = 165) -->
+  <div class="modal fade" id="useUnitsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-droplet-half text-primary me-2"></i>Record Unit Usage</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="use-units-vial-id">
+          <div class="card bg-light p-3 mb-3 border-0">
+            <div class="fw-bold text-dark fs-6" id="use-units-item-name">—</div>
+            <div class="d-flex justify-content-between align-items-center mt-2">
+              <span class="badge bg-secondary" id="use-units-location-badge">Tampa</span>
+              <span class="fw-bold text-success" id="use-units-current-remaining">200 / 200 units</span>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Units Used / Administered</label>
+            <input type="number" class="form-control form-control-lg" id="use-units-amount-input" placeholder="e.g. 35" min="1">
+            <div class="form-text text-primary fw-medium mt-2" id="use-units-calc-preview">Remaining after: 200 units</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Patient Name / Chart # (Optional)</label>
+            <input type="text" class="form-control" id="use-units-patient-input" placeholder="e.g. John Doe">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <input type="text" class="form-control" id="use-units-notes-input" placeholder="e.g. Dose 1.0 mg SQ">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="submitUseUnitsForm()">Confirm & Deduct Units</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Transfer Stock Modal (Tampa <-> Zephyrhills) -->
+  <div class="modal fade" id="transferStockModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-arrow-left-right text-primary me-2"></i>Transfer Stock Between Clinics</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Product</label>
+            <select class="form-select" id="transfer-product-select">
+              <option value="Tirzepatide 1 mL">Tirzepatide 1 mL</option>
+              <option value="Tirzepatide 2 mL">Tirzepatide 2 mL</option>
+              <option value="Tirzepatide 3 mL">Tirzepatide 3 mL</option>
+              <option value="Tirzepatide 4 mL">Tirzepatide 4 mL</option>
+              <option value="Tirzepatide 5+ mL">Tirzepatide 5+ mL</option>
+              <option value="Semaglutide 5 mL">Semaglutide 5 mL</option>
+              <option value="Influenza Quadrivalent (Flu Shot)">Influenza Quadrivalent (Flu Shot)</option>
+              <option value="Toradol (Ketorolac 30 mg/mL)">Toradol (Ketorolac 30 mg/mL)</option>
+            </select>
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">From Clinic</label>
+              <select class="form-select" id="transfer-from-location">
+                <option value="Tampa" selected>Tampa</option>
+                <option value="Zephyrhills">Zephyrhills</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">To Clinic</label>
+              <select class="form-select" id="transfer-to-location">
+                <option value="Zephyrhills" selected>Zephyrhills</option>
+                <option value="Tampa">Tampa</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Number of Sealed Vials to Transfer</label>
+            <input type="number" class="form-control" id="transfer-qty-input" placeholder="e.g. 5" min="1" value="1">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Transfer Notes</label>
+            <input type="text" class="form-control" id="transfer-notes-input" placeholder="e.g. Weekly rebalancing">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="submitTransferStockForm()">Execute Transfer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Edit / Add Item Modal (1 mL = 100 units & 5+ mL Custom) -->
+  <div class="modal fade" id="editItemModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-box-seam text-primary me-2"></i>Product Catalog Item</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit-item-id">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Product Name</label>
+            <input type="text" class="form-control" id="edit-item-name" placeholder="e.g. Tirzepatide 2 mL">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Category</label>
+              <select class="form-select" id="edit-item-category">
+                <option value="Tirzepatide">Tirzepatide</option>
+                <option value="Semaglutide">Semaglutide</option>
+                <option value="Vaccines">Vaccines</option>
+                <option value="Supplies">Supplies</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Clinic Location</label>
+              <select class="form-select" id="edit-item-location">
+                <option value="Tampa">Tampa</option>
+                <option value="Zephyrhills">Zephyrhills</option>
+              </select>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Vial Size (mL)</label>
+              <input type="number" step="0.1" class="form-control" id="edit-item-ml" placeholder="e.g. 2">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Total Units Per Vial</label>
+              <input type="number" class="form-control" id="edit-item-units" placeholder="e.g. 200 (100u/mL)">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Default Vendor</label>
+              <input type="text" class="form-control" id="edit-item-vendor" placeholder="e.g. Empower Pharmacy">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Vendor SKU</label>
+              <input type="text" class="form-control" id="edit-item-sku" placeholder="e.g. EMP-TRZ-2ML">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Barcode / NDC</label>
+              <input type="text" class="form-control" id="edit-item-barcode" placeholder="e.g. 70020002001">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Low Stock Threshold</label>
+              <input type="number" class="form-control" id="edit-item-threshold" value="3">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="submitEditItemForm()">Save Product</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Single Item Quick Count Audit Modal -->
+  <div class="modal fade" id="singleAuditModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-clipboard-check text-primary me-2"></i>Physical Count Verification</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="audit-item-id">
+          <div class="card bg-light p-3 mb-3 border-0">
+            <div class="fw-bold" id="audit-item-name">—</div>
+            <small class="text-muted">Location: <span id="audit-item-location" class="fw-bold">Tampa</span></small>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Observed Closed Count</label>
+              <input type="number" class="form-control form-control-lg" id="audit-closed-count-input" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Observed Open Count</label>
+              <input type="number" class="form-control form-control-lg" id="audit-open-count-input" min="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Audit Notes</label>
+            <input type="text" class="form-control" id="audit-notes-input" placeholder="e.g. End of shift count">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="submitSingleAuditForm()">Save Audit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Receive Pharmacy Order Modal (Partial Deliveries) -->
+  <div class="modal fade" id="receiveOrderModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-box-seam text-success me-2"></i>Receive Shipment / Delivery</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="receive-order-id">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <span class="fw-bold fs-5" id="receive-order-number">ORD-00000</span>
+              <div class="text-muted small">Vendor: <span id="receive-order-vendor" class="fw-bold">Empower</span></div>
+            </div>
+            <div style="min-width: 250px;">
+              <label class="form-label small fw-bold mb-1">Staff Name / Received By</label>
+              <input type="text" class="form-control" id="receive-staff-name-input" placeholder="Enter your name">
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="text-center">Ordered Qty</th>
+                  <th class="text-center">Previously Received</th>
+                  <th class="text-center" style="width: 140px;">Received in this Shipment</th>
+                </tr>
+              </thead>
+              <tbody id="receive-items-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-success" onclick="submitReceiveOrderForm()">Confirm & Update Closed Inventory</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. New Pharmacy Order Modal -->
+  <div class="modal fade" id="newOrderModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-cart-plus text-primary me-2"></i>New Pharmacy Purchase Order</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Clinic Location</label>
+              <select class="form-select" id="new-order-location">
+                <option value="Tampa">Tampa</option>
+                <option value="Zephyrhills">Zephyrhills</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Vendor</label>
+              <select class="form-select" id="new-order-vendor">
+                <option value="Empower Pharmacy">Empower Pharmacy</option>
+                <option value="McKesson">McKesson</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Staff Member Placing / Receiving Order</label>
+            <input type="text" class="form-control" id="new-order-staff-name" placeholder="e.g. Sarah Jenkins, RN">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Product</label>
+            <select class="form-select" id="new-order-product">
+              <option value="Tirzepatide 1 mL">Tirzepatide 1 mL</option>
+              <option value="Tirzepatide 2 mL">Tirzepatide 2 mL</option>
+              <option value="Tirzepatide 3 mL">Tirzepatide 3 mL</option>
+              <option value="Tirzepatide 4 mL">Tirzepatide 4 mL</option>
+              <option value="Tirzepatide 5+ mL">Tirzepatide 5+ mL</option>
+              <option value="Semaglutide 5 mL">Semaglutide 5 mL</option>
+              <option value="Influenza Quadrivalent (Flu Shot)">Influenza Quadrivalent (Flu Shot)</option>
+            </select>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Ordered Quantity</label>
+              <input type="number" class="form-control" id="new-order-qty" value="10" min="1">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Unit Price ($)</label>
+              <input type="number" step="0.01" class="form-control" id="new-order-price" value="120.00">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="
+            createPharmacyOrder({
+              location: document.getElementById('new-order-location').value,
+              vendor: document.getElementById('new-order-vendor').value,
+              staffName: document.getElementById('new-order-staff-name').value,
+              items: [{
+                itemName: document.getElementById('new-order-product').value,
+                orderedQty: Number(document.getElementById('new-order-qty').value),
+                receivedQty: 0,
+                unitPrice: Number(document.getElementById('new-order-price').value)
+              }],
+              totalAmount: Number(document.getElementById('new-order-qty').value) * Number(document.getElementById('new-order-price').value)
+            });
+          ">Place Order</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Create User Modal -->
+  <div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill text-primary me-2"></i>Create Staff Member</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Full Name</label>
+            <input type="text" class="form-control" id="create-user-fullname" placeholder="e.g. Emily Watson, RN">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Username</label>
+              <input type="text" class="form-control" id="create-user-username" placeholder="e.g. ewatson">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Password</label>
+              <input type="password" class="form-control" id="create-user-password" placeholder="••••••••">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Role</label>
+              <select class="form-select" id="create-user-role">
+                <option value="Nurse">Nurse</option>
+                <option value="Medical Assistant">Medical Assistant</option>
+                <option value="Front Desk">Front Desk</option>
+                <option value="Inventory Manager">Inventory Manager</option>
+                <option value="Administrator">Administrator</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Assigned Location</label>
+              <select class="form-select" id="create-user-location">
+                <option value="Tampa">Tampa</option>
+                <option value="Zephyrhills">Zephyrhills</option>
+                <option value="All">All Locations (Admin/Mgr)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-stetho-primary" onclick="
+            createUserDoc({
+              fullName: document.getElementById('create-user-fullname').value,
+              username: document.getElementById('create-user-username').value,
+              passwordHash: document.getElementById('create-user-password').value,
+              role: document.getElementById('create-user-role').value,
+              location: document.getElementById('create-user-location').value
+            });
+          ">Create User</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. In-Browser Firebase Config Modal -->
+  <div class="modal fade" id="firebaseConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass-card border-0">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-fire text-danger me-2"></i>Firebase Configuration</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">Paste your Firebase web app configuration JSON below:</p>
+          <textarea class="form-control font-monospace" id="firebase-config-json-input" rows="7" placeholder='{
+  "apiKey": "AIzaSy...",
+  "authDomain": "my-clinic.firebaseapp.com",
+  "projectId": "my-clinic",
+  "storageBucket": "my-clinic.appspot.com",
+  "messagingSenderId": "123456",
+  "appId": "1:123456:web:abcd"
+}'></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveLocalFirebaseConfig()">Save & Connect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Application Modules -->
+  <script src="firebase-config.js"></script>
+  <script src="setup-data.js"></script>
+  <script src="auth.js"></script>
+  <script src="inventory.js"></script>
+  <script src="orders.js"></script>
+  <script src="cases.js"></script>
+  <script src="reports.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
